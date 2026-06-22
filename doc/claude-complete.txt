@@ -1,0 +1,64 @@
+*claude-complete.txt*        AI code completion via the Claude Code CLI
+
+==============================================================================
+CONTENTS                                                 *claude-complete*
+
+  1. Requirements ........................... |claude-complete-requirements|
+  2. Setup .................................. |claude-complete-setup|
+  3. Mappings ............................... |claude-complete-mappings|
+  4. Configuration .......................... |claude-complete-config|
+  5. Commands / API ......................... |claude-complete-api|
+
+==============================================================================
+1. REQUIREMENTS                              *claude-complete-requirements*
+
+  - Neovim >= 0.10
+  - the `claude` CLI on $PATH, authenticated
+  - optional: snacks.nvim for the rich progress panel
+
+==============================================================================
+2. SETUP                                            *claude-complete-setup*
+
+  require("claude-complete").setup({})
+
+With lazy.nvim: >lua
+    { "ramanshrivastava/claude-complete.nvim", event = "InsertEnter", opts = {} }
+<
+==============================================================================
+3. MAPPINGS                                      *claude-complete-mappings*
+
+  Insert mode, all configurable via |claude-complete-config|:
+
+    <C-g>   request a completion at the cursor
+    <Tab>   accept the suggestion
+    <C-c>   cancel an in-flight request
+
+  Typing, leaving insert mode, or moving the cursor dismisses the suggestion.
+
+==============================================================================
+4. CONFIGURATION                                   *claude-complete-config*
+
+  setup() accepts a table merged over the defaults: >lua
+    {
+      command = "claude",
+      model = "sonnet",
+      cli_args = { "-p", "--max-turns", "100", "--output-format",
+        "stream-json", "--verbose", "--permission-mode", "bypassPermissions" },
+      timeout_ms = 60000,
+      keymaps = { trigger = "<C-g>", accept = "<Tab>", cancel = "<C-c>" },
+      context = { inline_full_under = 300, above = 150, below = 50,
+        imports = 20, diagnostics = 5, tree = 15 },
+      system_prompt = nil,
+      highlights = { ghost = { link = "Comment" } },
+      ui = { rich = true },
+    }
+<
+  Set any keymap to `false` to leave it unbound.
+
+==============================================================================
+5. API                                              *claude-complete-api*
+
+  require("claude-complete").trigger()   request a completion
+  require("claude-complete").cancel()    cancel + clear ghost text
+
+vim:tw=78:ts=8:ft=help:norl:
