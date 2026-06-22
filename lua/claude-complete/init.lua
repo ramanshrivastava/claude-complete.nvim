@@ -67,7 +67,7 @@ function M.cancel()
   ghost.dismiss()
 end
 
-local function wire(opts)
+local function wire()
   local map = config.options.keymaps
   if map.trigger then
     vim.keymap.set("i", map.trigger, M.trigger, { desc = "Claude: complete at cursor" })
@@ -102,8 +102,7 @@ function M.setup(opts)
   config.setup(opts)
   define_highlights()
   vim.api.nvim_create_autocmd("ColorScheme", { callback = define_highlights })
-  -- Defer keymaps/autocmds to the first insert to keep startup cheap.
-  vim.api.nvim_create_autocmd("InsertEnter", { once = true, callback = wire })
+  wire()
 end
 
 return M
