@@ -74,6 +74,27 @@ local function parse_suggestion(lines)
   return text
 end
 
+--- Keep only code: drop markdown code fences, and "★ Insight" blocks that some
+--- output styles inject between ─── separators.
+---@param text string?
+---@return string?
+local function sanitize(text)
+  if not text then
+    return nil
+  end
+  local out, skipping = {}, false
+  for _, line in ipairs(vim.split(text, "\n")) do
+    if line:find("★ Insight", 1, true) then
+      skipping = true
+    elseif skipping and line:match("^[`%s]*[─-]+[`%s]*$") then
+      skipping = false
+    elseif not skipping and not line:match("^%s*```%w*%s*$") then
+      out[#out + 1] = line
+    end
+  end
+  return table.concat(out, "\n")
+end
+
 function M.cancel()
   if state.timeout then
     state.timeout:stop()
@@ -87,11 +108,13 @@ function M.cancel()
   state.stdout, state.stderr, state.tools, state.scanned = {}, {}, {}, 0
 end
 
---- Run the CLI with `prompt` on stdin. Calls `on_done(suggestion|nil, err|nil)`.
----@param prompt string
+--- Run the CLI with `context` on stdin under `system` (--system-prompt).
+--- Calls `on_done(suggestion|nil, err|nil)`.
+---@param context string
+---@param system string
 ---@param on_done fun(suggestion: string?, err: string?)
 ---@return boolean started
-function M.run(prompt, on_done)
+function M.run(context, system, on_done)
   local cfg = config.options
   if vim.fn.executable(cfg.command) ~= 1 then
     on_done(nil, cfg.command .. " not found in PATH")
@@ -101,7 +124,7 @@ function M.run(prompt, on_done)
 
   local cmd = { cfg.command }
   vim.list_extend(cmd, cfg.cli_args)
-  vim.list_extend(cmd, { "--model", cfg.model })
+  vim.list_extend(cmd, { "--model", cfg.model, "--system-prompt", system })
 
   state.job = vim.fn.jobstart(cmd, {
     stdin = "pipe",
@@ -126,7 +149,7 @@ function M.run(prompt, on_done)
       if code ~= 0 then
         on_done(nil, #stderr > 0 and table.concat(stderr, " ") or "exited " .. code)
       else
-        on_done(parse_suggestion(stdout), nil)
+        on_done(sanitize(parse_suggestion(stdout)), nil)
       end
     end),
   })
@@ -137,7 +160,7 @@ function M.run(prompt, on_done)
     return false
   end
 
-  vim.fn.chansend(state.job, prompt)
+  vim.fn.chansend(state.job, context)
   vim.fn.chanclose(state.job, "stdin")
 
   state.timeout = vim.uv.new_timer()

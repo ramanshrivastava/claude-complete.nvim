@@ -9,6 +9,7 @@ local M = {}
 -- Status-panel groups link to standard highlights so any colourscheme themes them.
 local STATUS_LINKS = {
   ClaudeCompleteTitle = "Title",
+  ClaudeCompleteContext = "Comment",
   ClaudeCompleteCurrent = "Function",
   ClaudeCompleteHistory = "Comment",
   ClaudeCompleteParam = "NonText",
@@ -43,7 +44,7 @@ function M.trigger()
   local origin = vim.api.nvim_win_get_cursor(0)
   ghost.dismiss()
   status.start()
-  claude.run(context.build_prompt(), function(suggestion, err)
+  claude.run(context.build_context(), context.system_prompt(), function(suggestion, err)
     status.stop()
     if err then
       vim.notify("claude-complete: " .. err, vim.log.levels.WARN)

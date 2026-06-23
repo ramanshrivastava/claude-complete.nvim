@@ -4,12 +4,7 @@ AI code completion for Neovim, powered by the [Claude Code](https://www.claude.c
 
 Press a key in insert mode and Claude reads the surrounding code (imports, the cursor window, LSP diagnostics, open buffers, the project tree), explores the project with its tools when it needs to, and returns a multi-line completion as ghost text. Accept with another key.
 
-```text
-function parseConfig(raw: string): Config {
-  ┊const parsed = JSON.parse(raw);           ← ghost text
-  ┊return ConfigSchema.parse(parsed);
-}
-```
+![demo](assets/demo.gif)
 
 ## Requirements
 
@@ -85,7 +80,11 @@ All keys are configurable (see below). Typing, leaving insert mode, or moving th
 
 ## How it works
 
-The plugin shells out to `claude -p` with `--output-format stream-json`, sends the gathered context on stdin, streams the tool-use events to drive the progress UI, and renders the final assistant text as ghost text. No data leaves your machine except through the Claude CLI you already use.
+The plugin shells out to `claude -p` with `--output-format stream-json`, sends the gathered context on stdin under a code-only `--system-prompt`, streams the tool-use events to drive the progress panel, sanitizes the result (stripping any stray markdown fences or output-style prose), and renders it as ghost text. No data leaves your machine except through the Claude CLI you already use.
+
+## Health
+
+Run `:checkhealth claude-complete` to verify Neovim's version, that the `claude` CLI is on your `PATH`, and your configuration.
 
 ## License
 

@@ -4,7 +4,9 @@ M.defaults = {
   -- The Claude CLI to shell out to, and the model passed to it.
   command = "claude",
   model = "sonnet",
-  -- Extra CLI flags. `--model <model>` is added automatically.
+  -- Extra CLI flags. `--model <model>` and `--system-prompt <prompt>` are added
+  -- automatically. `--exclude-dynamic-system-prompt-sections` keeps output clean
+  -- (no output-style "insight" prose leaking into completions).
   cli_args = {
     "-p",
     "--max-turns",
@@ -14,6 +16,7 @@ M.defaults = {
     "--verbose",
     "--permission-mode",
     "bypassPermissions",
+    "--exclude-dynamic-system-prompt-sections",
   },
   -- Abort a request that has not returned within this many milliseconds.
   timeout_ms = 60000,
@@ -39,8 +42,9 @@ M.defaults = {
     ghost = { link = "Comment" },
   },
   -- Progress UI. `rich` uses a coloured tool-activity panel via snacks.nvim when
-  -- available; otherwise an in-place vim.notify spinner is used.
-  ui = { rich = true },
+  -- available; otherwise an in-place cmdline spinner is used. `context_line` shows
+  -- what was sent (file, lines, branch) at the top of the panel.
+  ui = { rich = true, context_line = true },
 }
 
 M.options = vim.deepcopy(M.defaults)

@@ -107,13 +107,26 @@ function M.gather()
   local tree = vim.fn.system(("ls -1 2>/dev/null | head -%d"):format(cfg.tree)):gsub("%s+$", "")
   vim.list_extend(parts, { "", "=== PROJECT TREE ===", tree })
 
+  M._summary = { relpath = relpath, ft = ft, sent_lines = hi - lo + 1, branch = git_branch() }
   return table.concat(parts, "\n")
 end
 
+--- What the most recent gather() sent, for the progress panel.
+---@return { relpath: string, ft: string, sent_lines: integer, branch: string }?
+function M.summary()
+  return M._summary
+end
+
+--- The system prompt, passed to the CLI via --system-prompt (replaces the default).
 ---@return string
-function M.build_prompt()
-  local system = config.options.system_prompt or DEFAULT_SYSTEM_PROMPT
-  return system .. "\n\nCONTEXT:\n" .. M.gather()
+function M.system_prompt()
+  return config.options.system_prompt or DEFAULT_SYSTEM_PROMPT
+end
+
+--- The user message: the gathered context.
+---@return string
+function M.build_context()
+  return "CONTEXT:\n" .. M.gather()
 end
 
 return M

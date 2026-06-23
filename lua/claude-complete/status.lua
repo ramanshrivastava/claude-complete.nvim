@@ -1,5 +1,6 @@
 local config = require("claude-complete.config")
 local claude = require("claude-complete.claude")
+local context = require("claude-complete.context")
 
 local M = {}
 
@@ -20,96 +21,108 @@ local function has_rich()
   return config.options.ui.rich and _G.Snacks ~= nil and Snacks.notifier ~= nil
 end
 
---- Turn the tool history into colourable rows plus a plain body.
----@return table[] structured, string body
+---@param frame_char string
+---@param elapsed integer
+---@return string
+local function title(frame_char, elapsed)
+  return string.format("%s Claude · %s · %ds", frame_char, config.options.model, elapsed)
+end
+
+--- Build the panel body: a context line, the tool activity, and a footer.
+---@return table[] rows, string body
 local function build(tools, count, elapsed)
   local rows, body = {}, {}
-  if #tools == 0 then
-    rows[1] = { text = "Thinking…", kind = "thinking" }
-    return rows, "Thinking…"
-  end
-  for _, t in ipairs(tools) do
-    local prefix = t.status == "running" and "▸ "
-      or (t.status == "error" and "  ✗ " or "  ✓ ")
-    local line = prefix .. t.name .. (t.param and ("  " .. t.param) or "")
-    local timing
-    if t.status ~= "running" and t.duration_ms then
-      timing = fmt_dur(t.duration_ms)
-      line = line .. string.rep(" ", 6) .. timing
-    end
-    rows[#rows + 1] = {
-      text = line,
-      kind = t.status == "running" and "current" or "history",
-      name = t.name,
-      param = t.param,
-      prefix = prefix,
-      status = t.status,
-      timing = timing,
-    }
+
+  local s = config.options.ui.context_line and context.summary()
+  if s then
+    local line = string.format("%s (%s) · %d lines · %s", s.relpath, s.ft, s.sent_lines, s.branch)
+    rows[#rows + 1] = { text = line, kind = "context" }
     body[#body + 1] = line
   end
-  local width = 0
-  for _, l in ipairs(body) do
-    width = math.max(width, vim.fn.strdisplaywidth(l))
+
+  if #tools == 0 then
+    rows[#rows + 1] = { text = "Thinking…", kind = "thinking" }
+    body[#body + 1] = "Thinking…"
+  else
+    local namew = 0
+    for _, t in ipairs(tools) do
+      namew = math.max(namew, #t.name)
+    end
+    for _, t in ipairs(tools) do
+      local prefix = t.status == "running" and "▸ "
+        or (t.status == "error" and "  ✗ " or "  ✓ ")
+      local line = prefix .. t.name .. string.rep(" ", namew - #t.name)
+      if t.param then
+        line = line .. "  " .. t.param
+      end
+      if t.status ~= "running" and t.duration_ms then
+        line = line .. string.rep(" ", 4) .. fmt_dur(t.duration_ms)
+      end
+      rows[#rows + 1] = {
+        text = line,
+        kind = t.status == "running" and "current" or "history",
+        prefix = prefix,
+        status = t.status,
+      }
+      body[#body + 1] = line
+    end
+    local width = 0
+    for _, l in ipairs(body) do
+      width = math.max(width, vim.fn.strdisplaywidth(l))
+    end
+    local footer = string.format("⚡ %d tools · %ds", count, elapsed)
+    rows[#rows + 1] = { text = string.rep("─", width), kind = "sep" }
+    rows[#rows + 1] = { text = footer, kind = "footer" }
+    body[#body + 1] = rows[#rows - 1].text
+    body[#body + 1] = footer
   end
-  rows[#rows + 1] = { text = string.rep("─", width), kind = "sep" }
-  rows[#rows + 1] = { text = string.format("⚡ %d tools · %ds", count, elapsed), kind = "footer" }
-  vim.list_extend(body, { rows[#rows - 1].text, rows[#rows].text })
+
   return rows, table.concat(body, "\n")
 end
 
---- Paint extmark highlights onto the snacks notification buffer.
+--- Colour the snacks notification buffer: prefix by status, the rest by row kind.
 local function apply_highlights(buf)
   if not structured or not vim.api.nvim_buf_is_valid(buf) then
     return
   end
   vim.api.nvim_buf_clear_namespace(buf, notif_ns, 0, -1)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local function mark(row, col, ecol, hl)
+    vim.api.nvim_buf_set_extmark(buf, notif_ns, row, col, { end_col = ecol, hl_group = hl })
+  end
   for i, e in ipairs(structured) do
     local text = lines[i]
     if not text then
       break
     end
-    local row = i - 1
-    local function mark(col, ecol, hl)
-      vim.api.nvim_buf_set_extmark(buf, notif_ns, row, col, { end_col = ecol, hl_group = hl })
-    end
-    if e.kind == "thinking" then
-      mark(0, #text, "ClaudeCompleteThinking")
-    elseif e.kind == "sep" then
-      mark(0, #text, "ClaudeCompleteSep")
-    elseif e.kind == "footer" then
-      mark(0, #text, "ClaudeCompleteFooter")
+    local whole = {
+      context = "ClaudeCompleteContext",
+      thinking = "ClaudeCompleteThinking",
+      sep = "ClaudeCompleteSep",
+      footer = "ClaudeCompleteFooter",
+    }
+    if whole[e.kind] then
+      mark(i - 1, 0, #text, whole[e.kind])
     else
       local plen = #(e.prefix or "")
-      local pre_hl = e.status == "running" and "ClaudeCompleteArrow"
+      local pre = e.status == "running" and "ClaudeCompleteArrow"
         or (e.status == "error" and "ClaudeCompleteError" or "ClaudeCompleteSuccess")
-      mark(0, plen, pre_hl)
-      local nend = plen + #(e.name or "")
-      if nend <= #text then
-        mark(plen, nend, e.kind == "current" and "ClaudeCompleteCurrent" or "ClaudeCompleteHistory")
-      end
-      local pend = #text
-      if e.param then
-        if e.timing then
-          pend = #text - #e.timing - 6
-        end
-        if nend + 2 < pend then
-          mark(nend + 2, pend, "ClaudeCompleteParam")
-        end
-      end
-      if e.timing then
-        mark(#text - #e.timing, #text, "ClaudeCompleteTiming")
-      end
+      mark(i - 1, 0, plen, pre)
+      mark(
+        i - 1,
+        plen,
+        #text,
+        e.kind == "current" and "ClaudeCompleteCurrent" or "ClaudeCompleteHistory"
+      )
     end
   end
 end
 
-local function render(frame_char, rows, body)
+local function render(frame_char, elapsed, rows, body)
   if has_rich() then
     Snacks.notifier.notify(body, "info", {
       id = NOTIF_ID,
-      title = frame_char .. " Claude",
+      title = title(frame_char, elapsed),
       icon = "",
       hl = { title = "ClaudeCompleteTitle" },
       opts = function(n)
@@ -119,12 +132,13 @@ local function render(frame_char, rows, body)
       end,
     })
   else
-    local action = rows[1] and rows[1].text:gsub("^%s*[▸✓✗]%s*", "") or "…"
-    vim.api.nvim_echo(
-      { { frame_char .. " Claude ", "ClaudeCompleteTitle" }, { "· " .. action, "Comment" } },
-      false,
-      {}
-    )
+    local action = rows[#rows] and rows[#rows].kind ~= "footer" and rows[#rows].text
+      or (rows[1] and rows[1].text)
+      or "…"
+    vim.api.nvim_echo({
+      { title(frame_char, elapsed), "ClaudeCompleteTitle" },
+      { "  " .. action:gsub("^%s*[▸✓✗]%s*", ""), "Comment" },
+    }, false, {})
   end
 end
 
@@ -141,9 +155,10 @@ function M.start()
       end
       frame = frame + 1
       local scan = claude.scan()
-      local rows, body = build(scan.tools, scan.count, math.floor((vim.uv.now() - started) / 1000))
+      local elapsed = math.floor((vim.uv.now() - started) / 1000)
+      local rows, body = build(scan.tools, scan.count, elapsed)
       structured = rows
-      render(FRAMES[(frame % #FRAMES) + 1], rows, body)
+      render(FRAMES[(frame % #FRAMES) + 1], elapsed, rows, body)
     end)
   )
 end
