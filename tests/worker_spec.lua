@@ -101,6 +101,12 @@ check("multi-block text concatenated", multi.text == "foobar", multi.text)
 local errturn = run_turn({ init, result_err })
 check("error result → err", errturn.err ~= nil and errturn.text == nil, errturn.err)
 
+-- error_max_turns is treated as an empty completion, not an error.
+local result_maxturns = vim.json.encode({ type = "result", subtype = "error_max_turns", is_error = true })
+local maxturns = run_turn({ init, assistant, result_maxturns })
+check("error_max_turns → empty text", maxturns.called and maxturns.text == "")
+check("error_max_turns → no err", maxturns.err == nil)
+
 -- 6. Stale responses (generation mismatch) are dropped.
 do
   local it = worker._internal

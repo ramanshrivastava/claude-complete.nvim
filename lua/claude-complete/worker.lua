@@ -18,7 +18,7 @@ local M = {}
 -- budget every output/input token counts. Keeps responses to raw continuation
 -- text only; the CLI exposes no max-tokens flag, so the length cap is a prompt
 -- instruction.
-local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURSOR>; text before it is the prefix, text after is the suffix. Your ENTIRE output is inserted verbatim into the file at the caret, so it must be raw code only. Output ONLY the raw text to insert to continue the code — never any prose, preamble, explanation, commentary, greeting, or question; never markdown or code fences; never <thinking>/<think> or any XML/markup wrapper or reasoning; no leading/trailing blank lines. Do not restate the task or say what you are about to do. Never repeat text already adjacent to the caret. Match the surrounding indentation and style. Keep it short (at most ~10 lines) and stop at a natural boundary. If nothing useful fits, output nothing at all.]]
+local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURSOR>; text before it is the prefix, text after is the suffix. You cannot read files or use any tools — complete using ONLY the provided prefix and suffix, immediately. Your ENTIRE output is inserted verbatim into the file at the caret, so it must be raw code only. Output ONLY the raw text to insert to continue the code — never any prose, preamble, explanation, commentary, greeting, or question; never markdown or code fences; never <thinking>/<think> or any XML/markup wrapper or reasoning; no leading/trailing blank lines. Do not restate the task or say what you are about to do. Never repeat text already adjacent to the caret. Match the surrounding indentation and style. Keep it short (at most ~10 lines) and stop at a natural boundary. If nothing useful fits, output nothing at all.]]
 
 local state = {
   job = nil, ---@type integer?
@@ -103,10 +103,15 @@ local function handle_message(obj)
   elseif obj.type == "result" then
     local text = table.concat(state.parts, "")
     state.parts = {}
-    if obj.is_error or obj.subtype ~= "success" then
-      deliver(nil, obj.subtype or "error")
-    else
+    if obj.subtype == "success" and not obj.is_error then
       deliver(text, nil)
+    elseif obj.subtype == "error_max_turns" then
+      -- The turn was spent before a final answer (e.g. a tool-call attempt,
+      -- now prevented by --tools ""). Not a failure — just no completion, so
+      -- deliver empty text (no error path, no failure-counter bump).
+      deliver("", nil)
+    else
+      deliver(nil, obj.subtype or "error")
     end
   end
 end
@@ -195,6 +200,13 @@ local function start()
     model,
     "--max-turns",
     "1",
+    -- Disable ALL built-in tools. haiku otherwise tries to read the file (a
+    -- tool-call turn) which burns the single --max-turns 1 turn → the CLI ends
+    -- with `error_max_turns` and no completion. With no tools available it must
+    -- answer directly in one turn. Measured: ~33% of requests hit
+    -- error_max_turns without this, 0% with it.
+    "--tools",
+    "",
     "--permission-mode",
     "bypassPermissions",
     "--exclude-dynamic-system-prompt-sections",
