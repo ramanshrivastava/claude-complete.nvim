@@ -57,6 +57,33 @@ Once on, pause while typing in insert mode and a completion appears as ghost tex
 
 **Source badge:** auto-lane ghost text carries a dim tag after its first line (e.g. `󰚩 haiku-4-5`, derived from the model) so you can tell it apart from other UI. It is display-only — never inserted when you accept. Set `auto.hint.text` to override it, or `auto.hint.enabled = false` to hide it. The manual `<C-g>` lane is never labelled.
 
+### Use as a blink.cmp source
+
+Prefer the completion as a row **inside your [blink.cmp](https://github.com/saghen/blink.cmp) menu** rather than ghost text? Register the bundled source (module `claude-complete.blink`). It reuses the same persistent worker, FIM context, and output sanitizer, and adds a single item — labelled with the first line of the completion, kind `󰚩 Haiku` — whose insert text is the full (multi-line) continuation.
+
+```lua
+{
+  "saghen/blink.cmp",
+  opts = {
+    sources = {
+      default = { "lsp", "path", "snippets", "buffer", "claude" },
+      providers = {
+        claude = {
+          name = "Haiku",
+          module = "claude-complete.blink",
+          async = true,        -- ~2s round-trip: never block the menu on us
+          timeout_ms = 3000,
+          score_offset = -1,   -- sit just below your LSP; raise to prioritise
+          -- opts = { score_offset = -1 }, -- optional per-item score bump
+        },
+      },
+    },
+  },
+}
+```
+
+It's **async** (the row pops in ~2 s after you pause, like Copilot's did) and **debounced** (`auto.debounce_ms`) so it doesn't spam the worker as you type; only one request is ever in flight and a newer keystroke supersedes the older one. This lane is fully independent of the ghost-text lane — enable either or both. `auto.blink.enabled = false` makes the source's `enabled()` return false without unwiring the provider (wiring the provider is what actually turns it on).
+
 **Quota / cost:** the auto lane runs on **your Claude subscription** through the CLI — no separate API key. Because it fires on every typing pause it is chattier than the manual lane, so a cheap fast model (`claude-haiku-4-5`, the default) is strongly recommended. The worker shuts itself down after 10 idle minutes and repeated failures disable the lane for the session (with one notification) rather than retrying forever.
 
 ## Configuration
@@ -95,6 +122,7 @@ Once on, pause while typing in insert mode and a completion appears as ghost tex
     disabled_filetypes = { "TelescopePrompt", "snacks_picker_input", "oil" },
     show_with_menu = true,   -- show ghost text even when the completion menu is open
     hint = { enabled = true, text = nil }, -- source badge; text=nil derives from the model
+    blink = { enabled = false }, -- advisory flag for the blink.cmp source (see below)
     worker_env = { MAX_THINKING_TOKENS = "0" }, -- worker-only env; {} re-enables thinking
   },
   system_prompt = nil,       -- string to replace the built-in prompt (manual lane)

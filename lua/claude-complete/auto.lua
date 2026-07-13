@@ -295,8 +295,10 @@ function M.is_enabled()
   return enabled
 end
 
--- Internal seam for headless tests (tests/worker_spec.lua). Not public API.
+-- Internal seam for headless tests (tests/worker_spec.lua) and the blink source
+-- (blink.lua reuses the same FIM context + output sanitizer). Not public API.
 M._sanitize = sanitize
+M._build_prompt = build_prompt
 
 --- Toggle the lane, returning the new state.
 ---@return boolean enabled

@@ -20,6 +20,7 @@ for _, mod in ipairs({
   "claude-complete.config",
   "claude-complete.worker",
   "claude-complete.auto",
+  "claude-complete.blink",
   "claude-complete.ghost",
   "claude-complete.status",
   "claude-complete.health",
@@ -215,6 +216,75 @@ do
   check("reasoning-only yields no ghost", #san("<thinking>only thoughts, no code</thinking>") == 0)
   check("plain code untouched", joined(san("const x = 1")) == "const x = 1")
   check("fences still stripped", joined(san("```lua\nlocal x = 1\n```")) == "local x = 1")
+end
+
+-- 11. blink.cmp source: item shape, enabled() flag, cancellation drops stale.
+do
+  local Source = require("claude-complete.blink")
+  local worker = require("claude-complete.worker")
+  config.setup({})
+
+  -- Item shape (via the internal seam, no blink runtime needed).
+  local ctx = { cursor = { 5, 3 }, keyword = "ret" }
+  local single = Source._make_item(ctx, "return a + b", {})
+  check("label is first line", single.label == "return a + b")
+  check("insertText is full text", single.insertText == "return a + b")
+  check("kind_name is Haiku", single.kind_name == "Haiku")
+  check("kind_icon set", single.kind_icon == "󰚩 ")
+  check("textEdit anchored at cursor", single.textEdit.range.start.line == 4
+    and single.textEdit.range.start.character == 3
+    and single.textEdit.range["end"].character == 3)
+  check("filterText is the keyword", single.filterText == "ret")
+
+  local ml = Source._make_item(ctx, "if x then\n  return 1\nend", {})
+  check("multiline label truncated with ellipsis", ml.label == "if x then…")
+  check("multiline insert keeps all lines", ml.insertText == "if x then\n  return 1\nend")
+
+  local long = string.rep("a", 80)
+  local lt = Source._make_item(ctx, long, {})
+  check("long label truncated to 60 + ellipsis", lt.label == string.rep("a", 60) .. "…")
+
+  -- enabled() honours the advisory flag.
+  local src = Source.new({})
+  config.setup({ auto = { blink = { enabled = false } } })
+  check("enabled() false when flag false", src:enabled() == false)
+  config.setup({ auto = { blink = { enabled = true } } })
+  check("enabled() true when flag true", src:enabled() == true)
+
+  -- Cancellation: a cancelled context must not deliver its (late) response.
+  config.setup({ auto = { debounce_ms = 5 } })
+  vim.cmd("enew!")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "def f():", "    " })
+  vim.api.nvim_win_set_cursor(0, { 2, 4 })
+
+  local orig = worker.request
+  local captured
+  worker.request = function(_, on_done)
+    captured = on_done
+  end
+
+  local fake_ctx = { cursor = { 2, 4 }, get_keyword = function() return "" end }
+
+  -- Positive path first: fresh context delivers one item.
+  local got_ok
+  Source.new({}):get_completions(fake_ctx, function(resp) got_ok = resp end)
+  vim.wait(300, function() return captured ~= nil end)
+  check("worker fired after debounce", captured ~= nil)
+  if captured then captured("return None", nil) end
+  check("delivers exactly one item", got_ok ~= nil and #got_ok.items == 1)
+  check("delivered item label", got_ok and got_ok.items[1].label == "return None")
+
+  -- Cancellation path.
+  captured = nil
+  local got_cancel
+  local cancel = Source.new({}):get_completions(fake_ctx, function(resp) got_cancel = resp end)
+  vim.wait(300, function() return captured ~= nil end)
+  cancel()
+  if captured then captured("stale = true", nil) end
+  check("cancelled response dropped", got_cancel == nil)
+
+  worker.request = orig
+  config.setup({})
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))

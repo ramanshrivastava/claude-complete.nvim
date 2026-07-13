@@ -54,6 +54,10 @@ M.defaults = {
     -- A dim source badge on the auto-lane ghost text so it is distinguishable
     -- from other UI. `text = nil` derives it from the model (e.g. "󰚩 haiku-4-5").
     hint = { enabled = true, text = nil },
+    -- Optional: surface Haiku completions as a row inside the blink.cmp menu
+    -- instead of ghost text (see lua/claude-complete/blink.lua and the README).
+    -- Advisory only — wiring the provider is what actually enables the source.
+    blink = { enabled = false },
     -- Environment for the worker process only (extends, does not replace, the
     -- inherited env). MAX_THINKING_TOKENS=0 disables haiku's interleaved
     -- thinking, ~halving warm latency (~3.3s → ~1.7s). Set to {} to keep it.
