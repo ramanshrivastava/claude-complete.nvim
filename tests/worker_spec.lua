@@ -38,6 +38,12 @@ local a = config.options.auto
 check("auto defaults present", type(a) == "table" and a.enabled == false)
 check("auto model default", a.model == "claude-haiku-4-5")
 check("auto disabled_filetypes", vim.tbl_contains(a.disabled_filetypes, "oil"))
+check("worker_env disables thinking", a.worker_env.MAX_THINKING_TOKENS == "0")
+
+-- worker_env must be replaceable wholesale (so users can clear the default).
+config.setup({ auto = { worker_env = {} } })
+check("worker_env override clears default", next(config.options.auto.worker_env) == nil)
+config.setup({}) -- restore defaults for the rest of the suite
 
 -- Helper: feed a full turn's stdout lines through the real parser and capture
 -- what the current request receives.

@@ -46,6 +46,10 @@ M.defaults = {
     max_filesize_kb = 500, -- skip buffers larger than this
     max_lines = 10000, -- skip buffers with more lines than this
     disabled_filetypes = { "TelescopePrompt", "snacks_picker_input", "oil" },
+    -- Environment for the worker process only (extends, does not replace, the
+    -- inherited env). MAX_THINKING_TOKENS=0 disables haiku's interleaved
+    -- thinking, ~halving warm latency (~3.3s → ~1.7s). Set to {} to keep it.
+    worker_env = { MAX_THINKING_TOKENS = "0" },
   },
   -- Override to steer the completion behaviour.
   system_prompt = nil, -- nil → built-in prompt (see context.lua)
@@ -68,6 +72,10 @@ function M.setup(opts)
   -- Lists must replace, not index-merge.
   if opts and opts.cli_args then
     M.options.cli_args = opts.cli_args
+  end
+  -- Replace worker_env wholesale so users can clear the default (e.g. `{}`).
+  if opts and opts.auto and opts.auto.worker_env ~= nil then
+    M.options.auto.worker_env = opts.auto.worker_env
   end
   return M.options
 end

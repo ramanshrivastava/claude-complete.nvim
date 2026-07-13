@@ -14,20 +14,11 @@ local config = require("claude-complete.config")
 --- guarantees each turn is single-shot (no tool-loop) which keeps it fast.
 local M = {}
 
--- FIM (fill-in-the-middle) system prompt. Keeps responses to raw continuation
--- text only. The CLI exposes no max-tokens flag, so the length cap is a prompt
+-- FIM (fill-in-the-middle) system prompt. Kept terse on purpose: at this latency
+-- budget every output/input token counts. Keeps responses to raw continuation
+-- text only; the CLI exposes no max-tokens flag, so the length cap is a prompt
 -- instruction.
-local SYSTEM_PROMPT = [[You are a fast inline code-completion engine embedded in a text editor, like GitHub Copilot.
-
-You receive a code file with the caret position marked by the token <CURSOR>. Everything before <CURSOR> is the prefix; everything after is the suffix. Produce the text that should be inserted at the caret to continue the code.
-
-RULES:
-- Output ONLY the raw text to insert. No markdown, no code fences, no backticks, no explanation, no commentary, no leading/trailing blank lines.
-- Continue naturally from the prefix. Never repeat text that already exists immediately before or after the caret.
-- Match the surrounding indentation, naming, and language conventions exactly.
-- Keep it short: at most ~10 lines. Stop at a natural, logical boundary (end of statement, expression, or block).
-- Do not think out loud. Respond immediately with the completion.
-- If no useful completion is possible, output nothing.]]
+local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURSOR>; text before it is the prefix, text after is the suffix. Output ONLY the raw text to insert at the caret to continue the code — no markdown, no code fences, no commentary, no leading/trailing blank lines. Never repeat text already adjacent to the caret. Match the surrounding indentation and style. Keep it short (at most ~10 lines) and stop at a natural boundary. If nothing useful fits, output nothing.]]
 
 local state = {
   job = nil, ---@type integer?
@@ -214,9 +205,17 @@ local function start()
   state.partial, state.parts = "", {}
   state.stopping = false
 
+  -- Disable extended "thinking" for THIS worker only (never the manual lane).
+  -- haiku's interleaved thinking is the dominant latency tail; turning it off
+  -- roughly halves warm full-completion latency. Measured (claude-haiku-4-5,
+  -- warm avg of 3 requests): ~3.31s with thinking → ~1.71s with
+  -- MAX_THINKING_TOKENS=0. `env` extends (does not replace) the inherited
+  -- environment, so subscription auth is preserved.
+  local worker_env = type(cfg.auto.worker_env) == "table" and cfg.auto.worker_env or nil
   local job = vim.fn.jobstart(cmd, {
     stdin = "pipe",
     stdout_buffered = false,
+    env = worker_env,
     on_stdout = function(_, data)
       feed(data or {})
     end,
