@@ -46,6 +46,11 @@ M.defaults = {
     max_filesize_kb = 500, -- skip buffers larger than this
     max_lines = 10000, -- skip buffers with more lines than this
     disabled_filetypes = { "TelescopePrompt", "snacks_picker_input", "oil" },
+    -- Coexist with the completion menu (blink.cmp / nvim-cmp). Default true:
+    -- ghost text is shown even while the menu is open, since blink auto-opens on
+    -- nearly every pause and would otherwise starve the lane. Set false for the
+    -- old conservative behaviour (skip whenever a menu is visible).
+    show_with_menu = true,
     -- A dim source badge on the auto-lane ghost text so it is distinguishable
     -- from other UI. `text = nil` derives it from the model (e.g. "󰚩 haiku-4-5").
     hint = { enabled = true, text = nil },

@@ -43,7 +43,10 @@ local function should_trigger()
   if claude.is_running() or ghost.is_active() then
     return false
   end
-  if completion_menu_visible() then
+  -- By default we coexist with the completion menu (Copilot/Cursor behaviour):
+  -- blink auto-opens on nearly every pause, so skipping when it is visible
+  -- starves the lane. `show_with_menu = false` restores the old guard.
+  if not config.options.auto.show_with_menu and completion_menu_visible() then
     return false
   end
 
@@ -168,6 +171,10 @@ local function request()
     if claude.is_running() or ghost.is_active() then
       return
     end
+    -- In conservative mode, also bail if the menu opened during the round-trip.
+    if not config.options.auto.show_with_menu and completion_menu_visible() then
+      return
+    end
     local lines = to_lines(text)
     if #lines > 0 then
       ghost.show(lines, hint_text())
@@ -175,19 +182,31 @@ local function request()
   end)
 end
 
---- Restart the idle debounce; cancel any in-flight auto request (the keystroke
---- that triggered this makes the pending suggestion stale).
-local function schedule()
-  worker.cancel()
+--- (Re)start the idle debounce that fires the next request.
+local function arm_debounce()
   if not debounce_timer then
     debounce_timer = vim.uv.new_timer()
   end
   debounce_timer:stop()
-  debounce_timer:start(
-    config.options.auto.debounce_ms,
-    0,
-    vim.schedule_wrap(request)
-  )
+  debounce_timer:start(config.options.auto.debounce_ms, 0, vim.schedule_wrap(request))
+end
+
+--- Buffer content changed (a keystroke, paste, or accepting a completion-menu
+--- item). Any such change invalidates the current suggestion, so dismiss the
+--- ghost and cancel the in-flight request before re-arming the debounce. This
+--- is the one true conflict when coexisting with the menu: accepting a menu
+--- item is a programmatic change (no InsertCharPre), so we clear the ghost here.
+local function on_change()
+  worker.cancel()
+  ghost.dismiss()
+  arm_debounce()
+end
+
+--- Cursor held idle in insert mode. Only re-arm the debounce — do NOT dismiss:
+--- the user may be reading a just-shown suggestion, and CursorHoldI fires after
+--- idle, which would otherwise erase it.
+local function on_hold()
+  arm_debounce()
 end
 
 --- Wire the autocmds that drive the auto lane. Idempotent.
@@ -199,10 +218,8 @@ function M.enable()
   enabled = true
 
   augroup = vim.api.nvim_create_augroup("ClaudeCompleteAuto", { clear = true })
-  vim.api.nvim_create_autocmd({ "TextChangedI", "CursorHoldI" }, {
-    group = augroup,
-    callback = schedule,
-  })
+  vim.api.nvim_create_autocmd("TextChangedI", { group = augroup, callback = on_change })
+  vim.api.nvim_create_autocmd("CursorHoldI", { group = augroup, callback = on_hold })
   vim.api.nvim_create_autocmd("InsertLeave", {
     group = augroup,
     callback = function()

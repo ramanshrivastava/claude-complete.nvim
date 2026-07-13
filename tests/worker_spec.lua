@@ -39,6 +39,7 @@ check("auto defaults present", type(a) == "table" and a.enabled == false)
 check("auto model default", a.model == "claude-haiku-4-5")
 check("auto disabled_filetypes", vim.tbl_contains(a.disabled_filetypes, "oil"))
 check("worker_env disables thinking", a.worker_env.MAX_THINKING_TOKENS == "0")
+check("show_with_menu default true", a.show_with_menu == true)
 
 -- worker_env must be replaceable wholesale (so users can clear the default).
 config.setup({ auto = { worker_env = {} } })
@@ -157,15 +158,44 @@ do
   ghost.show({ "    return a + b" }, "󰚩 haiku-4-5")
   check("badge present when hint given", badge_present(buf, "haiku-4-5"))
 
+  -- Tab precedence: while ghost is shown, a buffer-local <Tab> maps to
+  -- ghost.accept. Buffer-local + nowait wins over blink's global <Tab>.
+  local m = vim.fn.maparg("<Tab>", "i", false, true)
+  check("Tab is buffer-local while ghost shown", m.buffer == 1)
+  check("Tab accepts the claude ghost", m.callback == ghost.accept)
+
   ghost.accept()
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   check("accept inserts completion", text:find("return a + b", 1, true) ~= nil)
   check("accept excludes badge text", text:find("haiku", 1, true) == nil)
 
+  -- After accept/dismiss our <Tab> is removed, so blink's global map is live again.
+  local m2 = vim.fn.maparg("<Tab>", "i", false, true)
+  check("Tab mapping released after accept", vim.tbl_isempty(m2) or m2.buffer ~= 1)
+
   vim.api.nvim_win_set_cursor(0, { 1, 0 })
   ghost.show({ "xyz" }) -- no hint → manual-lane behaviour
   check("no badge when hint omitted", not badge_present(buf, "haiku"))
   ghost.dismiss()
+end
+
+-- 9. Coexistence with the completion menu: a content change (e.g. accepting a
+-- menu item — a programmatic edit with no InsertCharPre) must dismiss the ghost.
+do
+  local auto = require("claude-complete.auto")
+  local ghost = require("claude-complete.ghost")
+  config.setup({}) -- show_with_menu = true
+  vim.cmd("enew!")
+  local buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "hello" })
+  vim.api.nvim_win_set_cursor(0, { 1, 5 })
+
+  auto.enable()
+  ghost.show({ "world" })
+  check("ghost active before change", ghost.is_active())
+  vim.api.nvim_exec_autocmds("TextChangedI", {}) -- simulate menu-accept / edit
+  check("content change dismisses ghost", not ghost.is_active())
+  auto.disable()
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))
