@@ -127,6 +127,34 @@ local function hint_text()
   return h.text or ("󰚩 " .. short_model(config.options.auto.model))
 end
 
+-- Case-insensitive tag bodies for Lua patterns (Lua has no /i flag).
+local THINKING = "[Tt][Hh][Ii][Nn][Kk][Ii][Nn][Gg]" -- <thinking>
+local THINK = "[Tt][Hh][Ii][Nn][Kk]" -- <think>
+
+--- Strip in-band reasoning wrappers. With MAX_THINKING_TOKENS=0 some models
+--- leak <thinking>…</thinking> spans as plain assistant text instead of code.
+--- Removes complete spans, a lone unterminated opening tag (drop to end), and
+--- any stray tags. `.` matches newlines in Lua patterns, so `.-`/`.*` span
+--- multiple lines. Returns the whitespace-trimmed remainder.
+---@param text string?
+---@return string
+local function strip_reasoning(text)
+  if not text or text == "" then
+    return ""
+  end
+  local t = text
+  -- Complete spans first (non-greedy), both tag variants.
+  t = t:gsub("<" .. THINKING .. ">.-</" .. THINKING .. ">", "")
+  t = t:gsub("<" .. THINK .. ">.-</" .. THINK .. ">", "")
+  -- Unterminated opening tag: drop it and everything after.
+  t = t:gsub("<" .. THINKING .. ">.*", "")
+  t = t:gsub("<" .. THINK .. ">.*", "")
+  -- Any stray opening/closing tags left behind.
+  t = t:gsub("</?" .. THINKING .. ">", "")
+  t = t:gsub("</?" .. THINK .. ">", "")
+  return vim.trim(t)
+end
+
 --- Strip stray code fences and blank edges the model may emit despite the prompt.
 ---@param text string
 ---@return string[]
@@ -144,6 +172,18 @@ local function to_lines(text)
     table.remove(lines)
   end
   return lines
+end
+
+--- Full sanitize pipeline: drop reasoning wrappers, then fences/blank edges.
+--- Whitespace-only or reasoning-only output yields no lines (no ghost shown).
+---@param text string?
+---@return string[]
+local function sanitize(text)
+  local stripped = strip_reasoning(text)
+  if stripped == "" then
+    return {}
+  end
+  return to_lines(stripped)
 end
 
 local function request()
@@ -175,7 +215,7 @@ local function request()
     if not config.options.auto.show_with_menu and completion_menu_visible() then
       return
     end
-    local lines = to_lines(text)
+    local lines = sanitize(text)
     if #lines > 0 then
       ghost.show(lines, hint_text())
     end
@@ -254,6 +294,9 @@ end
 function M.is_enabled()
   return enabled
 end
+
+-- Internal seam for headless tests (tests/worker_spec.lua). Not public API.
+M._sanitize = sanitize
 
 --- Toggle the lane, returning the new state.
 ---@return boolean enabled

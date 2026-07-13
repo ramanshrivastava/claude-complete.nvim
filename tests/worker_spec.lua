@@ -198,6 +198,25 @@ do
   auto.disable()
 end
 
+-- 10. Sanitizer strips in-band reasoning wrappers (MAX_THINKING_TOKENS=0 leak).
+do
+  local auto = require("claude-complete.auto")
+  local san = auto._sanitize
+  local function joined(t)
+    return table.concat(t, "\n")
+  end
+
+  check("tag-only yields no ghost (repro)", #san("<thinking>") == 0)
+  check("wrapped span removed", joined(san("<thinking>let me reason</thinking>\nreturn a + b")) == "return a + b")
+  check("unterminated tag dropped to end", joined(san("return a + b\n<thinking>now I should")) == "return a + b")
+  check("<think> variant removed", joined(san("<think>hmm</think>foo()")) == "foo()")
+  check("stray closing tag removed", joined(san("bar</thinking>")) == "bar")
+  check("multiline reasoning then code", joined(san("<thinking>\nline one\nline two\n</thinking>\nx = 1\ny = 2")) == "x = 1\ny = 2")
+  check("reasoning-only yields no ghost", #san("<thinking>only thoughts, no code</thinking>") == 0)
+  check("plain code untouched", joined(san("const x = 1")) == "const x = 1")
+  check("fences still stripped", joined(san("```lua\nlocal x = 1\n```")) == "local x = 1")
+end
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then
   vim.cmd("cquit 1")
