@@ -174,16 +174,93 @@ local function to_lines(text)
   return lines
 end
 
---- Full sanitize pipeline: drop reasoning wrappers, then fences/blank edges.
---- Whitespace-only or reasoning-only output yields no lines (no ghost shown).
+--- Is `line` a markdown code-fence line (``` or ~~~, 3+, optional info string)?
+--- Returns the fence character ("`" or "~") or nil.
+---@param line string
+---@return string?
+local function fence_char(line)
+  if line:match("^%s*```+%s*[%w%._+#-]*%s*$") then
+    return "`"
+  elseif line:match("^%s*~~~+%s*[%w%._+#-]*%s*$") then
+    return "~"
+  end
+  return nil
+end
+
+--- If `text` contains fenced code, return ONLY the contents of the FIRST fenced
+--- block (dropping prose outside it). An unterminated fence runs to end. Returns
+--- nil when there is no fence, so the caller keeps the original text.
+---@param text string
+---@return string?
+local function extract_fenced(text)
+  local lines = vim.split(text, "\n", { trimempty = false })
+  local open, open_ch
+  for i = 1, #lines do
+    local ch = fence_char(lines[i])
+    if ch then
+      open, open_ch = i, ch
+      break
+    end
+  end
+  if not open then
+    return nil
+  end
+  local close = #lines + 1
+  for j = open + 1, #lines do
+    if fence_char(lines[j]) == open_ch then
+      close = j
+      break
+    end
+  end
+  return table.concat(vim.list_slice(lines, open + 1, close - 1), "\n")
+end
+
+--- A conservative "prose preamble" test: a full-sentence-shaped line (starts
+--- uppercase, has a space, only prose punctuation, ends with ":" or "."). Code
+--- lines like "if n == 0:" (has "="), "class Foo:" (lowercase), "else:" (one
+--- word) do NOT match. Best-effort; when in doubt it keeps the line.
+---@param line string
+---@return boolean
+local function is_prose_line(line)
+  local s = vim.trim(line)
+  return s:find(" ", 1, true) ~= nil and s:match("^%u[%w%s,'.!?-]*[:.]$") ~= nil
+end
+
+--- Drop a single leading prose line (after any leading blanks).
+---@param text string
+---@return string
+local function strip_leading_prose(text)
+  local lines = vim.split(text, "\n", { trimempty = false })
+  local i = 1
+  while lines[i] ~= nil and vim.trim(lines[i]) == "" do
+    i = i + 1
+  end
+  if lines[i] and is_prose_line(lines[i]) then
+    table.remove(lines, i)
+  end
+  return table.concat(lines, "\n")
+end
+
+--- Full sanitize pipeline. In order: drop reasoning wrappers; if the model
+--- wrapped code in a fence (often after a prose preamble), keep only the first
+--- fenced block; drop a leading prose preamble line; then strip stray fence
+--- lines and blank edges. Reasoning-/prose-only output yields no lines.
 ---@param text string?
 ---@return string[]
 local function sanitize(text)
-  local stripped = strip_reasoning(text)
-  if stripped == "" then
+  local t = strip_reasoning(text)
+  if t == "" then
     return {}
   end
-  return to_lines(stripped)
+  local fenced = extract_fenced(t)
+  if fenced ~= nil then
+    t = fenced
+  end
+  t = vim.trim(strip_leading_prose(t))
+  if t == "" then
+    return {}
+  end
+  return to_lines(t)
 end
 
 local function request()

@@ -216,6 +216,25 @@ do
   check("reasoning-only yields no ghost", #san("<thinking>only thoughts, no code</thinking>") == 0)
   check("plain code untouched", joined(san("const x = 1")) == "const x = 1")
   check("fences still stripped", joined(san("```lua\nlocal x = 1\n```")) == "local x = 1")
+
+  -- Fenced-code extraction + prose-preamble dropping.
+  local preamble = "I need to complete this fibonacci function. Let me provide the code:\n"
+    .. "```python\ndef fibonacci(n):\n    if n < 2:\n        return n\n```"
+  check("fenced block after preamble → code only",
+    joined(san(preamble)) == "def fibonacci(n):\n    if n < 2:\n        return n")
+  check("multiple fences → first wins",
+    joined(san("```\nfirst = 1\n```\nprose\n```\nsecond = 2\n```")) == "first = 1")
+  check("fence with language tag",
+    joined(san("```typescript\nconst y = 2;\n```")) == "const y = 2;")
+  check("~~~ fences supported",
+    joined(san("~~~\nx = 1\n~~~")) == "x = 1")
+  check("no-fence passthrough", joined(san("return a + b")) == "return a + b")
+  check("prose-only (colon) → empty", #san("Here is the completion:") == 0)
+  check("prose-only (period) → empty", #san("I need more context to help.") == 0)
+  -- Conservative: legit code that ends with ':' must NOT be treated as prose.
+  check("code 'if n == 0:' kept", joined(san("if n == 0:\n    return 0")) == "if n == 0:\n    return 0")
+  check("code 'class Foo:' kept (lowercase start)", joined(san("class Foo:\n    pass")) == "class Foo:\n    pass")
+  check("code 'else:' kept (single word)", joined(san("else:\n    return 1")) == "else:\n    return 1")
 end
 
 -- 11. blink.cmp source: item shape, enabled() flag, cancellation drops stale.

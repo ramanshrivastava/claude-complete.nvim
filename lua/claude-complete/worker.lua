@@ -18,7 +18,7 @@ local M = {}
 -- budget every output/input token counts. Keeps responses to raw continuation
 -- text only; the CLI exposes no max-tokens flag, so the length cap is a prompt
 -- instruction.
-local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURSOR>; text before it is the prefix, text after is the suffix. Output ONLY the raw text to insert at the caret to continue the code — no markdown, no code fences, no commentary, no leading/trailing blank lines. Never emit <thinking>, <think>, or any XML/markup wrapper or reasoning — only the raw code continuation. Never repeat text already adjacent to the caret. Match the surrounding indentation and style. Keep it short (at most ~10 lines) and stop at a natural boundary. If nothing useful fits, output nothing.]]
+local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURSOR>; text before it is the prefix, text after is the suffix. Your ENTIRE output is inserted verbatim into the file at the caret, so it must be raw code only. Output ONLY the raw text to insert to continue the code — never any prose, preamble, explanation, commentary, greeting, or question; never markdown or code fences; never <thinking>/<think> or any XML/markup wrapper or reasoning; no leading/trailing blank lines. Do not restate the task or say what you are about to do. Never repeat text already adjacent to the caret. Match the surrounding indentation and style. Keep it short (at most ~10 lines) and stop at a natural boundary. If nothing useful fits, output nothing at all.]]
 
 local state = {
   job = nil, ---@type integer?
