@@ -4,6 +4,7 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("claude_complete_ghost")
 local HL = "ClaudeCompleteGhost"
+local HINT_HL = "ClaudeCompleteGhostHint"
 local DISPLAY_MAX = 20
 
 local active = nil ---@type { lines: string[], bufnr: integer, row: integer, col: integer, key: string|false }?
@@ -14,8 +15,11 @@ function M.is_active()
 end
 
 --- Show `lines` as ghost text at the cursor and bind the accept key (buffer-local).
+--- `hint`, if given, renders a dim source badge after the first ghost line — it
+--- is display-only (a separate highlight, never inserted on accept).
 ---@param lines string[]
-function M.show(lines)
+---@param hint string?
+function M.show(lines, hint)
   local bufnr = vim.api.nvim_get_current_buf()
   local cursor = vim.api.nvim_win_get_cursor(0)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
@@ -29,8 +33,13 @@ function M.show(lines)
       { { ("  … (accept to insert all %d lines)"):format(#lines), HL } }
   end
 
+  local virt_text = { { lines[1] or "", HL } }
+  if hint and hint ~= "" then
+    virt_text[#virt_text + 1] = { " " .. hint, HINT_HL }
+  end
+
   vim.api.nvim_buf_set_extmark(bufnr, ns, cursor[1] - 1, cursor[2], {
-    virt_text = { { lines[1] or "", HL } },
+    virt_text = virt_text,
     virt_text_pos = "inline",
     virt_lines = #virt_lines > 0 and virt_lines or nil,
   })

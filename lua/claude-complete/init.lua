@@ -21,6 +21,9 @@ local STATUS_LINKS = {
   ClaudeCompleteSuccess = "DiagnosticOk",
   ClaudeCompleteError = "DiagnosticError",
   ClaudeCompleteTiming = "NonText",
+  -- Dim badge shown after auto-lane ghost text; a distinct, quieter group than
+  -- the ghost itself so it reads as a source tag, not part of the completion.
+  ClaudeCompleteGhostHint = "NonText",
 }
 
 local function define_highlights()

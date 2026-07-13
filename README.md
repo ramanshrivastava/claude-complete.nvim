@@ -53,6 +53,8 @@ Once on, pause while typing in insert mode and a completion appears as ghost tex
 
 **Latency:** the persistent worker avoids per-request startup, and it disables the model's extended "thinking" (`MAX_THINKING_TOKENS=0`, worker-only) since that was the dominant latency tail. With `claude-haiku-4-5` expect a **~4 s** first request after an idle period (the worker cold-starts) settling to **~2 s** for subsequent completions — down from ~6 s / ~4 s with thinking enabled. Still slower than a purpose-built FIM endpoint; the trade-off for running entirely through the Claude CLI with no extra API keys. Override the worker env via `auto.worker_env` (set it to `{}` to re-enable thinking).
 
+**Source badge:** auto-lane ghost text carries a dim tag after its first line (e.g. `󰚩 haiku-4-5`, derived from the model) so you can tell it apart from other UI. It is display-only — never inserted when you accept. Set `auto.hint.text` to override it, or `auto.hint.enabled = false` to hide it. The manual `<C-g>` lane is never labelled.
+
 **Quota / cost:** the auto lane runs on **your Claude subscription** through the CLI — no separate API key. Because it fires on every typing pause it is chattier than the manual lane, so a cheap fast model (`claude-haiku-4-5`, the default) is strongly recommended. The worker shuts itself down after 10 idle minutes and repeated failures disable the lane for the session (with one notification) rather than retrying forever.
 
 ## Configuration
@@ -89,6 +91,7 @@ Once on, pause while typing in insert mode and a completion appears as ghost tex
     max_filesize_kb = 500,   -- skip buffers larger than this
     max_lines = 10000,       -- skip buffers with more lines than this
     disabled_filetypes = { "TelescopePrompt", "snacks_picker_input", "oil" },
+    hint = { enabled = true, text = nil }, -- source badge; text=nil derives from the model
     worker_env = { MAX_THINKING_TOKENS = "0" }, -- worker-only env; {} re-enables thinking
   },
   system_prompt = nil,       -- string to replace the built-in prompt (manual lane)

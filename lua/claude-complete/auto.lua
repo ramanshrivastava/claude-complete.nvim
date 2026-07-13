@@ -106,6 +106,24 @@ local function build_prompt()
   )
 end
 
+--- A short, human name for the badge: drop the "claude-" prefix and any trailing
+--- 8-digit date, e.g. "claude-haiku-4-5-20251001" → "haiku-4-5".
+---@param model string
+---@return string
+local function short_model(model)
+  return (model:gsub("^claude%-", ""):gsub("%-%d%d%d%d%d%d%d%d$", ""))
+end
+
+--- The source badge for the current config, or nil when disabled.
+---@return string?
+local function hint_text()
+  local h = config.options.auto.hint
+  if not h or not h.enabled then
+    return nil
+  end
+  return h.text or ("󰚩 " .. short_model(config.options.auto.model))
+end
+
 --- Strip stray code fences and blank edges the model may emit despite the prompt.
 ---@param text string
 ---@return string[]
@@ -152,7 +170,7 @@ local function request()
     end
     local lines = to_lines(text)
     if #lines > 0 then
-      ghost.show(lines)
+      ghost.show(lines, hint_text())
     end
   end)
 end

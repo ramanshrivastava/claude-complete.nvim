@@ -128,6 +128,46 @@ do
   check("split JSON line reassembled", got.text == "    return a + b", got.text)
 end
 
+-- 8. Auto-lane source badge (ghost.lua). Display-only: present when shown with
+-- a hint, never inserted on accept, absent when omitted.
+do
+  local ghost = require("claude-complete.ghost")
+  local gns = vim.api.nvim_get_namespaces()["claude_complete_ghost"]
+
+  local function badge_present(buf, needle)
+    local marks = vim.api.nvim_buf_get_extmarks(buf, gns, 0, -1, { details = true })
+    for _, m in ipairs(marks) do
+      local vt = m[4] and m[4].virt_text
+      if vt then
+        for _, chunk in ipairs(vt) do
+          if type(chunk[1]) == "string" and chunk[1]:find(needle, 1, true) then
+            return true
+          end
+        end
+      end
+    end
+    return false
+  end
+
+  vim.cmd("enew!")
+  local buf = vim.api.nvim_get_current_buf()
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "def add(a, b):", "" })
+  vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+  ghost.show({ "    return a + b" }, "󰚩 haiku-4-5")
+  check("badge present when hint given", badge_present(buf, "haiku-4-5"))
+
+  ghost.accept()
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  check("accept inserts completion", text:find("return a + b", 1, true) ~= nil)
+  check("accept excludes badge text", text:find("haiku", 1, true) == nil)
+
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  ghost.show({ "xyz" }) -- no hint → manual-lane behaviour
+  check("no badge when hint omitted", not badge_present(buf, "haiku"))
+  ghost.dismiss()
+end
+
 print(string.format("\n%d passed, %d failed", passed, failed))
 if failed > 0 then
   vim.cmd("cquit 1")

@@ -46,6 +46,9 @@ M.defaults = {
     max_filesize_kb = 500, -- skip buffers larger than this
     max_lines = 10000, -- skip buffers with more lines than this
     disabled_filetypes = { "TelescopePrompt", "snacks_picker_input", "oil" },
+    -- A dim source badge on the auto-lane ghost text so it is distinguishable
+    -- from other UI. `text = nil` derives it from the model (e.g. "󰚩 haiku-4-5").
+    hint = { enabled = true, text = nil },
     -- Environment for the worker process only (extends, does not replace, the
     -- inherited env). MAX_THINKING_TOKENS=0 disables haiku's interleaved
     -- thinking, ~halving warm latency (~3.3s → ~1.7s). Set to {} to keep it.
