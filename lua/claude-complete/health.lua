@@ -1,4 +1,5 @@
 local config = require("claude-complete.config")
+local worker = require("claude-complete.worker")
 
 local M = {}
 
@@ -39,6 +40,23 @@ function M.check()
     h.ok(("timeout: %dms"):format(o.timeout_ms))
   else
     h.warn("`timeout_ms` is not a number")
+  end
+
+  h.start("claude-complete: auto lane")
+  local a = o.auto
+  if not a.enabled then
+    h.info("auto lane disabled (set `auto.enabled = true` or run `:ClaudeCompleteAuto on`)")
+  else
+    h.ok(("auto lane enabled · model: %s · debounce: %dms"):format(a.model, a.debounce_ms))
+  end
+  local w = worker.status()
+  if w.disabled then
+    h.warn("worker disabled this session (repeated failures) — `:ClaudeCompleteAuto on` to retry")
+  elseif w.running then
+    local lat = w.last_latency_ms and (" · last latency: " .. w.last_latency_ms .. "ms") or ""
+    h.ok(("worker running (%s)%s"):format(w.model or "?", lat))
+  else
+    h.info("worker not running (starts lazily on first completion)")
   end
 end
 

@@ -163,6 +163,18 @@ function M.start()
   )
 end
 
+--- A single, non-intrusive line for the auto lane (toggle, disable notices).
+--- Deliberately minimal — the auto lane must not spam the live panel per request.
+---@param msg string
+---@param level integer?
+function M.notify_auto(msg, level)
+  local opts = { title = "claude-complete" }
+  if has_rich() then
+    opts.id = NOTIF_ID .. "_auto"
+  end
+  vim.notify(msg, level or vim.log.levels.INFO, opts)
+end
+
 function M.stop()
   if timer then
     timer:stop()

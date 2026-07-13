@@ -35,6 +35,18 @@ M.defaults = {
     diagnostics = 5, -- nearest LSP diagnostics to include
     tree = 15, -- top-level entries of the project tree
   },
+  -- Automatic, Cursor-style lane: fast ghost text shown when you pause typing,
+  -- served by one persistent lightweight worker (see worker.lua). Independent
+  -- of the manual <C-g> lane above. Opt in with `auto.enabled = true`.
+  auto = {
+    enabled = false, -- off by default; users opt in
+    model = "claude-haiku-4-5", -- a cheap, fast model is strongly recommended
+    debounce_ms = 350, -- idle time before a completion is requested
+    idle_shutdown_min = 10, -- stop the worker after this many idle minutes
+    max_filesize_kb = 500, -- skip buffers larger than this
+    max_lines = 10000, -- skip buffers with more lines than this
+    disabled_filetypes = { "TelescopePrompt", "snacks_picker_input", "oil" },
+  },
   -- Override to steer the completion behaviour.
   system_prompt = nil, -- nil → built-in prompt (see context.lua)
   highlights = {

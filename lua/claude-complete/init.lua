@@ -3,6 +3,7 @@ local context = require("claude-complete.context")
 local claude = require("claude-complete.claude")
 local ghost = require("claude-complete.ghost")
 local status = require("claude-complete.status")
+local auto = require("claude-complete.auto")
 
 local M = {}
 
@@ -83,6 +84,30 @@ local function wire()
     end, { desc = "Claude: cancel completion" })
   end
 
+  vim.api.nvim_create_user_command("ClaudeCompleteAuto", function(cmd)
+    local arg = (cmd.args ~= "" and cmd.args or "toggle"):lower()
+    local now
+    if arg == "on" then
+      auto.enable()
+      now = true
+    elseif arg == "off" then
+      auto.disable()
+      now = false
+    elseif arg == "toggle" then
+      now = auto.toggle()
+    else
+      vim.notify("claude-complete: usage :ClaudeCompleteAuto toggle|on|off", vim.log.levels.WARN)
+      return
+    end
+    status.notify_auto(now and "auto lane on" or "auto lane off")
+  end, {
+    nargs = "?",
+    complete = function()
+      return { "toggle", "on", "off" }
+    end,
+    desc = "Claude: toggle the automatic completion lane",
+  })
+
   local group = vim.api.nvim_create_augroup("ClaudeComplete", { clear = true })
   vim.api.nvim_create_autocmd("InsertLeave", {
     group = group,
@@ -104,6 +129,9 @@ function M.setup(opts)
   define_highlights()
   vim.api.nvim_create_autocmd("ColorScheme", { callback = define_highlights })
   wire()
+  if config.options.auto.enabled then
+    auto.enable()
+  end
 end
 
 return M
