@@ -54,10 +54,13 @@ local function run_turn(lines, gen)
   it.reset()
   it.state.generation = gen or 1
   local captured = {}
-  it.state.queue = {
-    { gen = gen or 1, on_done = function(text, err)
+  it.state.inflight = {
+    gen = gen or 1,
+    prompt = "",
+    started_at = vim.uv.now(),
+    on_done = function(text, err)
       captured.text, captured.err, captured.called = text, err, true
-    end, started_at = vim.uv.now() },
+    end,
   }
   -- Split the fixture into chunks to exercise partial-line buffering: feed
   -- everything, then a final "" flush so the assembler emits the last line.
@@ -113,9 +116,8 @@ do
   it.reset()
   it.state.generation = 5 -- newer request already superseded gen 4
   local hit = false
-  it.state.queue = {
-    { gen = 4, on_done = function() hit = true end, started_at = vim.uv.now() },
-  }
+  it.state.inflight =
+    { gen = 4, prompt = "", started_at = vim.uv.now(), on_done = function() hit = true end }
   local chunk = { assistant, result_ok, "" }
   it.feed(chunk)
   check("stale response dropped", hit == false)
@@ -127,13 +129,90 @@ do
   it.reset()
   it.state.generation = 1
   local got = {}
-  it.state.queue = {
-    { gen = 1, on_done = function(t) got.text = t end, started_at = vim.uv.now() },
-  }
+  it.state.inflight =
+    { gen = 1, prompt = "", started_at = vim.uv.now(), on_done = function(t) got.text = t end }
   local half = math.floor(#assistant / 2)
   it.feed({ assistant:sub(1, half) }) -- no newline yet → buffered
   it.feed({ assistant:sub(half + 1), result_ok, "" })
   check("split JSON line reassembled", got.text == "    return a + b", got.text)
+end
+
+-- 7b. Send serialization: at most ONE message on the wire; a request that
+-- arrives mid-turn waits in `pending` and is sent only after the result.
+local function txt(t)
+  return vim.json.encode({
+    type = "assistant",
+    message = { role = "assistant", content = { { type = "text", text = t } } },
+  })
+end
+do
+  local it = worker._internal
+  config.setup({})
+  worker.enable()
+
+  local function fresh()
+    it.reset()
+    it.state.model = config.options.auto.model -- avoid model-mismatch restart
+    it.state.job = 4242 -- fake job so M.request never spawns a real process
+    local sent = {}
+    it.set_sender(function(_, data)
+      sent[#sent + 1] = data
+    end)
+    return sent
+  end
+
+  -- (1) B enqueued while A in flight → only A on the wire; B sent after A result.
+  local sent = fresh()
+  local gotA, gotB
+  worker.request("promptA", function(t, e) gotA = { t = t, e = e } end)
+  worker.request("promptB", function(t, e) gotB = { t = t, e = e } end)
+  check("only A on the wire while A in flight",
+    #sent == 1 and sent[1]:find("promptA", 1, true) ~= nil)
+  check("B waits in pending", it.state.pending ~= nil)
+  it.feed({ txt("AAA"), result_ok, "" }) -- A is stale (B bumped gen) → dropped, B sent
+  check("A dropped as superseded", gotA == nil)
+  check("B sent after A result", #sent == 2 and sent[2]:find("promptB", 1, true) ~= nil)
+  it.feed({ txt("BBB"), result_ok, "" })
+  check("B delivered to B's callback", gotB and gotB.t == "BBB")
+
+  -- (2) Three rapid A,B,C while A in flight → pending ends up C (B replaced).
+  sent = fresh()
+  local gA, gB, gC
+  worker.request("pA", function(t) gA = t end)
+  worker.request("pB", function(t) gB = t end)
+  worker.request("pC", function(t) gC = t end)
+  check("still only first on wire (3 rapid)", #sent == 1 and sent[1]:find("pA", 1, true) ~= nil)
+  check("pending replaced down to C", it.state.pending and it.state.pending.prompt == "pC")
+  it.feed({ txt("AAA"), result_ok, "" })
+  check("C sent after A result", #sent == 2 and sent[2]:find("pC", 1, true) ~= nil)
+  check("B (replaced) never delivered", gB == nil)
+  it.feed({ txt("CCC"), result_ok, "" })
+  check("C delivered", gC == "CCC")
+
+  -- (3) Worker death with inflight+pending: current-gen errors, slots cleared.
+  fresh()
+  local dA, dB
+  worker.request("dA", function(t, e) dA = { t = t, e = e } end)
+  worker.request("dB", function(t, e) dB = { t = t, e = e } end)
+  worker.shutdown() -- flush_error over both slots
+  check("death: current-gen (B) gets error", dB and dB.e ~= nil)
+  check("death: superseded (A) dropped", dA == nil)
+  check("death: both slots cleared (no jam)", it.state.inflight == nil and it.state.pending == nil)
+
+  -- (4) last_latency_ms measures send→result of the delivered request (restamped),
+  -- not the time it spent waiting in `pending`.
+  fresh()
+  worker.request("lA", function() end)
+  worker.request("lB", function() end)
+  vim.wait(60) -- age the enqueue time
+  it.feed({ txt("AAA"), result_ok, "" }) -- A dropped; B sent NOW (started_at restamped)
+  it.feed({ txt("BBB"), result_ok, "" }) -- B delivered ~immediately after its send
+  check("latency measured from send, not queue wait",
+    type(it.state.last_latency_ms) == "number" and it.state.last_latency_ms < 40,
+    it.state.last_latency_ms)
+
+  it.reset_sender()
+  it.reset()
 end
 
 -- 8. Auto-lane source badge (ghost.lua). Display-only: present when shown with

@@ -20,12 +20,24 @@ local M = {}
 -- instruction.
 local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURSOR>; text before it is the prefix, text after is the suffix. You cannot read files or use any tools — complete using ONLY the provided prefix and suffix, immediately. Your ENTIRE output is inserted verbatim into the file at the caret, so it must be raw code only. Output ONLY the raw text to insert to continue the code — never any prose, preamble, explanation, commentary, greeting, or question; never markdown or code fences; never <thinking>/<think> or any XML/markup wrapper or reasoning; no leading/trailing blank lines. Do not restate the task or say what you are about to do. Never repeat text already adjacent to the caret. Match the surrounding indentation and style. Keep it short (at most ~10 lines) and stop at a natural boundary. If nothing useful fits, output nothing at all.]]
 
+---@alias ClaudeCompleteReq { gen: integer, on_done: fun(text: string?, err: string?), prompt: string, started_at: integer }
+
+-- IMPORTANT — send serialization. The CLI reads stream-json user messages off
+-- stdin, but it COALESCES/DROPS messages that arrive mid-turn (they land as
+-- "queue-operation" entries in its transcript and some never become turns).
+-- Sending a new request while a turn is in flight therefore desynchronises
+-- request↔result matching and jams the lane (the newest, only-deliverable
+-- request never meets its result). So we send AT MOST ONE message at a time:
+-- `inflight` is the request currently on the wire; `pending` holds the single
+-- most-recent not-yet-sent request (replacing any older one). `pending` is only
+-- written to stdin once `inflight`'s `result` line arrives.
 local state = {
   job = nil, ---@type integer?
   model = nil, ---@type string?  model the running job was started with
   partial = "", ---@type string  incomplete trailing stdout chunk
   parts = {}, ---@type string[]  assistant text collected for the in-progress turn
-  queue = {}, ---@type { gen: integer, on_done: fun(text: string?, err: string?), started_at: integer }[]
+  inflight = nil, ---@type ClaudeCompleteReq?  request currently on the wire
+  pending = nil, ---@type ClaudeCompleteReq?  newest request awaiting the wire
   generation = 0, ---@type integer  latest request id; older responses are stale
   failures = 0, ---@type integer  consecutive crashes with no successful result
   disabled = false, ---@type boolean  auto lane disabled for the session
@@ -37,6 +49,9 @@ local state = {
 }
 
 local MAX_RETRIES = 3
+
+-- Indirection so headless tests can capture what would be written to stdin.
+local sender = vim.fn.chansend
 
 ---@return boolean
 function M.is_running()
@@ -59,31 +74,69 @@ function M.status()
   }
 end
 
---- Deliver a finished turn to its request, dropping it if a newer request has
---- superseded it (generation mismatch) or the queue is empty.
+--- Write a request to stdin now, restamping its start time so latency measures
+--- CLI time (not queue wait), and marking it in flight. Returns whether it sent.
+---@param req ClaudeCompleteReq
+---@return boolean sent
+local function send(req)
+  req.started_at = vim.uv.now()
+  local msg = vim.json.encode({
+    type = "user",
+    message = { role = "user", content = { { type = "text", text = req.prompt } } },
+  })
+  local ok = pcall(sender, state.job, msg .. "\n")
+  if ok then
+    state.inflight = req
+    return true
+  end
+  return false
+end
+
+--- Deliver the finished turn to the in-flight request (dropping it if a newer
+--- request superseded it), then flush any pending request onto the now-free wire.
 ---@param text string?
 ---@param err string?
 local function deliver(text, err)
-  local req = table.remove(state.queue, 1)
-  if not req then
-    return
+  local req = state.inflight
+  state.inflight = nil
+  if req then
+    if req.gen == state.generation then
+      if not err then
+        state.failures = 0
+        state.last_latency_ms = vim.uv.now() - req.started_at
+      end
+      req.on_done(text, err)
+    end
+    -- else stale: the user typed again after this request was sent → drop it.
   end
-  if req.gen ~= state.generation then
-    return -- stale: the user typed again after this request was sent
+
+  -- The wire is free — send the newest pending request, if any.
+  if state.pending and state.job then
+    local p = state.pending
+    state.pending = nil
+    if not send(p) and p.gen == state.generation then
+      p.on_done(nil, "failed to send request")
+    end
   end
-  if not err then
-    state.failures = 0
-    state.last_latency_ms = vim.uv.now() - req.started_at
-  end
-  req.on_done(text, err)
 end
 
---- Fail every queued request (used on unexpected death). Callbacks fire only
---- for the current generation; the rest are silently dropped.
+--- Fail the in-flight and pending requests (used on unexpected death). Callbacks
+--- fire only for the current generation; older ones are silently dropped.
 ---@param err string
 local function flush_error(err)
-  while #state.queue > 0 do
-    deliver(nil, err)
+  local reqs = {}
+  if state.inflight then
+    reqs[#reqs + 1] = state.inflight
+    state.inflight = nil
+  end
+  if state.pending then
+    reqs[#reqs + 1] = state.pending
+    state.pending = nil
+  end
+  for _, req in ipairs(reqs) do
+    if req.gen == state.generation then
+      req.on_done(nil, err)
+    end
   end
 end
 
@@ -282,8 +335,11 @@ function M.enable()
   state.cooldown_until = 0
 end
 
---- Queue a completion request. Only the newest request's result is delivered;
---- earlier in-flight requests are cancelled (their results dropped).
+--- Request a completion. Only the newest request's result is delivered; older
+--- ones are superseded. At most one message is on the wire at a time: if a turn
+--- is in flight, this request waits in the single `pending` slot (replacing any
+--- older pending, whose callback is silently dropped — its context was already
+--- cancelled) and is sent when the in-flight turn's result arrives.
 ---@param prompt string  the FIM user-message text
 ---@param on_done fun(text: string?, err: string?)
 function M.request(prompt, on_done)
@@ -302,16 +358,13 @@ function M.request(prompt, on_done)
 
   state.generation = state.generation + 1
   state.last_request_at = vim.uv.now()
-  state.queue[#state.queue + 1] =
-    { gen = state.generation, on_done = on_done, started_at = vim.uv.now() }
+  local req = { gen = state.generation, on_done = on_done, prompt = prompt, started_at = vim.uv.now() }
 
-  local msg = vim.json.encode({
-    type = "user",
-    message = { role = "user", content = { { type = "text", text = prompt } } },
-  })
-  local ok = pcall(vim.fn.chansend, state.job, msg .. "\n")
-  if not ok then
-    table.remove(state.queue)
+  if state.inflight then
+    -- A turn is on the wire; hold the newest request. Replace (and silently
+    -- drop) any older pending — blink/the ghost lane already cancelled it.
+    state.pending = req
+  elseif not send(req) then
     on_done(nil, "failed to send request")
   end
 end
@@ -322,9 +375,21 @@ end
 M._internal = {
   state = state,
   feed = feed,
+  send = send,
+  --- Override the stdin writer to capture messages instead of sending them.
+  ---@param fn fun(job: integer, data: string): any
+  set_sender = function(fn)
+    sender = fn
+  end,
+  reset_sender = function()
+    sender = vim.fn.chansend
+  end,
   reset = function()
-    state.queue, state.parts, state.partial = {}, {}, ""
+    state.inflight, state.pending = nil, nil
+    state.parts, state.partial = {}, ""
     state.generation = 0
+    state.last_latency_ms = nil
+    state.job = nil
   end,
 }
 
