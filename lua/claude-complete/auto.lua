@@ -117,14 +117,16 @@ local function short_model(model)
   return (model:gsub("^claude%-", ""):gsub("%-%d%d%d%d%d%d%d%d$", ""))
 end
 
---- The source badge for the current config, or nil when disabled.
+--- The source badge for the current config, or nil when disabled. Uses the
+--- model the CLI actually resolved (so an alias shows its real version).
 ---@return string?
 local function hint_text()
   local h = config.options.auto.hint
   if not h or not h.enabled then
     return nil
   end
-  return h.text or ("󰚩 " .. short_model(config.options.auto.model))
+  local model = worker.status().resolved_model or config.options.auto.model
+  return h.text or ("󰚩 " .. short_model(model))
 end
 
 -- Case-insensitive tag bodies for Lua patterns (Lua has no /i flag).

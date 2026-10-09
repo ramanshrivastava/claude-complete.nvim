@@ -40,7 +40,11 @@ M.defaults = {
   -- of the manual <C-g> lane above. Opt in with `auto.enabled = true`.
   auto = {
     enabled = false, -- off by default; users opt in
-    model = "claude-haiku-4-5", -- a cheap, fast model is strongly recommended
+    -- A cheap, fast model is strongly recommended. "haiku" is a Claude CLI
+    -- alias: the CLI resolves it to its newest Haiku, so updating the CLI
+    -- (`claude update`) upgrades the lane. Pin a full id (e.g.
+    -- "claude-haiku-4-5") to freeze a version instead.
+    model = "haiku",
     debounce_ms = 350, -- idle time before a completion is requested
     idle_shutdown_min = 10, -- stop the worker after this many idle minutes
     max_filesize_kb = 500, -- skip buffers larger than this
@@ -52,7 +56,8 @@ M.defaults = {
     -- old conservative behaviour (skip whenever a menu is visible).
     show_with_menu = true,
     -- A dim source badge on the auto-lane ghost text so it is distinguishable
-    -- from other UI. `text = nil` derives it from the model (e.g. "󰚩 haiku-4-5").
+    -- from other UI. `text = nil` derives it from the model the CLI actually
+    -- resolved (e.g. "󰚩 haiku-4-5"), falling back to the configured name.
     hint = { enabled = true, text = nil },
     -- Optional: surface Haiku completions as a row inside the blink.cmp menu
     -- instead of ghost text (see lua/claude-complete/blink.lua and the README).

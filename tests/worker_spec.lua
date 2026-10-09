@@ -37,7 +37,7 @@ local worker = require("claude-complete.worker")
 config.setup({})
 local a = config.options.auto
 check("auto defaults present", type(a) == "table" and a.enabled == false)
-check("auto model default", a.model == "claude-haiku-4-5")
+check("auto model default is the haiku alias", a.model == "haiku")
 check("auto disabled_filetypes", vim.tbl_contains(a.disabled_filetypes, "oil"))
 check("worker_env disables thinking", a.worker_env.MAX_THINKING_TOKENS == "0")
 check("show_with_menu default true", a.show_with_menu == true)
@@ -389,6 +389,21 @@ do
 
   worker.request = orig
   config.setup({})
+end
+
+-- The CLI resolves an alias ("haiku") itself; its init line names the concrete
+-- model, which status() exposes for the badge and :checkhealth.
+do
+  local it = worker._internal
+  it.reset()
+  check("no resolved model before init", worker.status().resolved_model == nil)
+  it.feed({
+    vim.json.encode({ type = "system", subtype = "init", model = "claude-haiku-5-5" }),
+    "",
+  })
+  check("init line sets resolved model", worker.status().resolved_model == "claude-haiku-5-5")
+  it.reset()
+  check("reset clears resolved model", worker.status().resolved_model == nil)
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))
