@@ -37,7 +37,7 @@ local worker = require("claude-complete.worker")
 config.setup({})
 local a = config.options.auto
 check("auto defaults present", type(a) == "table" and a.enabled == false)
-check("auto model default", a.model == "claude-haiku-4-5")
+check("auto model default is the haiku alias", a.model == "haiku")
 check("auto disabled_filetypes", vim.tbl_contains(a.disabled_filetypes, "oil"))
 check("worker_env disables thinking", a.worker_env.MAX_THINKING_TOKENS == "0")
 check("show_with_menu default true", a.show_with_menu == true)
@@ -388,6 +388,48 @@ do
   check("cancelled response dropped", got_cancel == nil)
 
   worker.request = orig
+  config.setup({})
+end
+
+-- The CLI resolves an alias ("haiku") itself; its init line names the concrete
+-- model, which status() exposes for the badge and :checkhealth.
+do
+  local it = worker._internal
+  it.reset()
+  check("no resolved model before init", worker.status().resolved_model == nil)
+  it.feed({
+    vim.json.encode({ type = "system", subtype = "init", model = "claude-haiku-5-5" }),
+    "",
+  })
+  check("init line sets resolved model", worker.status().resolved_model == "claude-haiku-5-5")
+  it.reset()
+  check("reset clears resolved model", worker.status().resolved_model == nil)
+
+  -- The badge prefers the resolved id, falling back to the configured name
+  -- before the first init line arrives.
+  local hint = require("claude-complete.auto")._hint_text
+  config.setup({})
+  check("badge falls back to configured model", hint() == "󰚩 haiku", hint())
+  it.state.resolved_model = "claude-haiku-5-5-20260101"
+  check("badge prefers resolved model", hint() == "󰚩 haiku-5-5", hint())
+  it.reset()
+
+  -- A real start() (not just reset()) forgets the previous process's model, so
+  -- a restart never shows a stale id. A fake CLI stands in for `claude`.
+  config.setup({ command = vim.fn.fnamemodify("tests/fake_claude.sh", ":p") })
+  worker.enable()
+  it.state.resolved_model = "stale"
+  worker.request("p", function() end)
+  local job = it.state.job
+  check("start() spawned the fake worker", job ~= nil and vim.fn.jobwait({ job }, 0)[1] == -1)
+  local resolved = worker.status().resolved_model
+  check("start() clears a stale resolved model", resolved == nil, resolved)
+  worker.shutdown()
+  if job then
+    vim.fn.jobwait({ job }, 2000) -- reap it: no fake worker outlives the test
+  end
+  vim.wait(50) -- let the scheduled on_exit run before the state is reset
+  it.reset()
   config.setup({})
 end
 

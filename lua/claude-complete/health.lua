@@ -54,7 +54,11 @@ function M.check()
     h.warn("worker disabled this session (repeated failures) — `:ClaudeCompleteAuto on` to retry")
   elseif w.running then
     local lat = w.last_latency_ms and (" · last latency: " .. w.last_latency_ms .. "ms") or ""
-    h.ok(("worker running (%s)%s"):format(w.model or "?", lat))
+    local model = w.model or "?"
+    if w.resolved_model and w.resolved_model ~= w.model then
+      model = model .. " → " .. w.resolved_model
+    end
+    h.ok(("worker running (%s)%s"):format(model, lat))
   else
     h.info("worker not running (starts lazily on first completion)")
   end

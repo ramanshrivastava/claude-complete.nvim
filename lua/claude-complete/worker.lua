@@ -34,6 +34,7 @@ local SYSTEM_PROMPT = [[Inline code-completion engine. The caret is marked <CURS
 local state = {
   job = nil, ---@type integer?
   model = nil, ---@type string?  model the running job was started with
+  resolved_model = nil, ---@type string?  concrete id the CLI reported in its init line
   partial = "", ---@type string  incomplete trailing stdout chunk
   parts = {}, ---@type string[]  assistant text collected for the in-progress turn
   inflight = nil, ---@type ClaudeCompleteReq?  request currently on the wire
@@ -64,12 +65,13 @@ function M.is_disabled()
 end
 
 --- A snapshot for :checkhealth / the toggle command.
----@return { running: boolean, disabled: boolean, model: string?, last_latency_ms: integer? }
+---@return { running: boolean, disabled: boolean, model: string?, resolved_model: string?, last_latency_ms: integer? }
 function M.status()
   return {
     running = state.job ~= nil,
     disabled = state.disabled,
     model = state.model,
+    resolved_model = state.resolved_model,
     last_latency_ms = state.last_latency_ms,
   }
 end
@@ -153,6 +155,10 @@ local function handle_message(obj)
         end
       end
     end
+  elseif obj.type == "system" and obj.subtype == "init" and type(obj.model) == "string" then
+    -- An alias like "haiku" is resolved inside the CLI; its init line names
+    -- the concrete model (e.g. "claude-haiku-4-5-20251001") for the badge.
+    state.resolved_model = obj.model
   elseif obj.type == "result" then
     local text = table.concat(state.parts, "")
     state.parts = {}
@@ -318,6 +324,7 @@ local function start()
   end
   state.job = job
   state.model = model
+  state.resolved_model = nil -- re-learned from this process's init line
   arm_idle_timer()
   return true
 end
@@ -389,6 +396,7 @@ M._internal = {
     state.parts, state.partial = {}, ""
     state.generation = 0
     state.last_latency_ms = nil
+    state.resolved_model = nil
     state.job = nil
   end,
 }

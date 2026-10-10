@@ -5,7 +5,7 @@ AI code completion for Neovim, powered by the [Claude Code](https://www.claude.c
 Two lanes, both rendered as ghost text you accept with `<Tab>`:
 
 - **Manual (`<C-g>`)** — the deep lane. Claude reads the surrounding code (imports, the cursor window, LSP diagnostics, open buffers, the project tree), explores the project with its tools when it needs to, and returns a considered multi-line completion. Best model: `sonnet`.
-- **Auto** *(opt-in)* — a fast, Cursor-style lane. As you pause typing, a lightweight persistent worker returns a short continuation from the code around your cursor. Meant as a Copilot replacement powered by your Claude subscription. Best model: `claude-haiku-4-5`.
+- **Auto** *(opt-in)* — a fast, Cursor-style lane. As you pause typing, a lightweight persistent worker returns a short continuation from the code around your cursor. Meant as a Copilot replacement powered by your Claude subscription. Default model: the `haiku` alias, which the Claude CLI resolves to its newest Haiku — `claude update` upgrades the lane with no config change, taking effect once the worker restarts (after the default 10-minute idle shutdown, `:ClaudeCompleteAuto off` then `on`, or restarting Neovim).
 
 ![demo](assets/demo.gif)
 
@@ -55,7 +55,7 @@ Once on, pause while typing in insert mode and a completion appears as ghost tex
 
 **Latency:** the persistent worker avoids per-request startup, and it disables the model's extended "thinking" (`MAX_THINKING_TOKENS=0`, worker-only) since that was the dominant latency tail. With `claude-haiku-4-5` expect a **~4 s** first request after an idle period (the worker cold-starts) settling to **~2 s** for subsequent completions — down from ~6 s / ~4 s with thinking enabled. Still slower than a purpose-built FIM endpoint; the trade-off for running entirely through the Claude CLI with no extra API keys. Override the worker env via `auto.worker_env` (set it to `{}` to re-enable thinking).
 
-**Source badge:** auto-lane ghost text carries a dim tag after its first line (e.g. `󰚩 haiku-4-5`, derived from the model) so you can tell it apart from other UI. It is display-only — never inserted when you accept. Set `auto.hint.text` to override it, or `auto.hint.enabled = false` to hide it. The manual `<C-g>` lane is never labelled.
+**Source badge:** auto-lane ghost text carries a dim tag after its first line (e.g. `󰚩 haiku-4-5`, derived from the model the CLI actually resolved — so the `haiku` alias shows its real version) so you can tell it apart from other UI. It is display-only — never inserted when you accept. Set `auto.hint.text` to override it, or `auto.hint.enabled = false` to hide it. The manual `<C-g>` lane is never labelled.
 
 ### Use as a blink.cmp source
 
@@ -84,7 +84,7 @@ Prefer the completion as a row **inside your [blink.cmp](https://github.com/sagh
 
 It's **async** (the row pops in ~2 s after you pause, like Copilot's did) and **debounced** (`auto.debounce_ms`) so it doesn't spam the worker as you type; only one request is ever in flight and a newer keystroke supersedes the older one. This lane is fully independent of the ghost-text lane — enable either or both. `auto.blink.enabled = false` makes the source's `enabled()` return false without unwiring the provider (wiring the provider is what actually turns it on).
 
-**Quota / cost:** the auto lane runs on **your Claude subscription** through the CLI — no separate API key. Because it fires on every typing pause it is chattier than the manual lane, so a cheap fast model (`claude-haiku-4-5`, the default) is strongly recommended. The worker shuts itself down after 10 idle minutes and repeated failures disable the lane for the session (with one notification) rather than retrying forever.
+**Quota / cost:** the auto lane runs on **your Claude subscription** through the CLI — no separate API key. Because it fires on every typing pause it is chattier than the manual lane, so a cheap fast model (the default `haiku` alias) is strongly recommended. The worker shuts itself down after 10 idle minutes and repeated failures disable the lane for the session (with one notification) rather than retrying forever.
 
 ## Configuration
 
@@ -114,7 +114,7 @@ It's **async** (the row pops in ~2 s after you pause, like Copilot's did) and **
   },
   auto = {                   -- the automatic, Cursor-style lane (opt-in)
     enabled = false,         -- off by default
-    model = "claude-haiku-4-5", -- a cheap, fast model is strongly recommended
+    model = "haiku", -- CLI alias → its newest Haiku; pin a dated id, e.g. "claude-haiku-4-5-20251001", to freeze
     debounce_ms = 350,       -- idle time before a completion is requested
     idle_shutdown_min = 10,  -- stop the worker after this many idle minutes
     max_filesize_kb = 500,   -- skip buffers larger than this
