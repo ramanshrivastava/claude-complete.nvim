@@ -215,6 +215,58 @@ do
   it.reset()
 end
 
+-- 7c. A model change restarts the worker; the OLD process's late callbacks must
+-- not touch the NEW one. Its on_exit is scheduled, so it runs after start() has
+-- already spawned the replacement, and its unread stdout can arrive after the
+-- swap too. tests/fake_claude.sh answers every message with its --model name.
+do
+  local it = worker._internal
+  it.reset()
+  worker.enable()
+  config.setup({
+    command = vim.fn.fnamemodify("tests/fake_claude.sh", ":p"),
+    auto = { model = "a" },
+  })
+
+  worker.request("p1", function() end)
+  local old_job = it.state.job
+  -- Block WITHOUT running the event loop: the old worker's answer ("a") sits
+  -- unread in its stdout pipe until after the restart below.
+  vim.uv.sleep(200)
+
+  config.options.auto.model = "b"
+  local got
+  worker.request("p2", function(t, e)
+    got = { t = t, e = e }
+  end)
+  local new_job = it.state.job
+
+  -- Let the old process exit, its scheduled callbacks run, and p2 be answered.
+  vim.wait(2000, function()
+    return vim.fn.jobwait({ old_job }, 0)[1] ~= -1 and got ~= nil
+  end)
+  vim.wait(100)
+
+  local answer = got and (got.e or got.t)
+  check("model change spawned a new worker", new_job ~= nil and new_job ~= old_job)
+  check("old worker's exit leaves the new job in place", it.state.job == new_job, it.state.job)
+  check("new worker still running", new_job and vim.fn.jobwait({ new_job }, 0)[1] == -1)
+  check("new request answered by the new worker", answer == "b", answer)
+  check("old worker's exit not counted as a crash", it.state.failures == 0, it.state.failures)
+
+  -- Stop both explicitly: if the bug is present, state.job no longer points at
+  -- the new process, so shutdown() alone would orphan it.
+  worker.shutdown()
+  for _, id in ipairs({ old_job, new_job }) do
+    pcall(vim.fn.jobstop, id)
+  end
+  vim.fn.jobwait({ old_job, new_job }, 2000)
+  vim.wait(50)
+  it.reset()
+  worker.enable()
+  config.setup({})
+end
+
 -- 8. Auto-lane source badge (ghost.lua). Display-only: present when shown with
 -- a hint, never inserted on accept, absent when omitted.
 do

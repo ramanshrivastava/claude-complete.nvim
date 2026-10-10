@@ -43,7 +43,6 @@ local state = {
   failures = 0, ---@type integer  consecutive crashes with no successful result
   disabled = false, ---@type boolean  auto lane disabled for the session
   cooldown_until = 0, ---@type integer  do not (re)start before this time (backoff)
-  stopping = false, ---@type boolean  intentional stop in progress (suppress restart)
   idle_timer = nil, ---@type uv_timer_t?
   last_request_at = nil, ---@type integer?
   last_latency_ms = nil, ---@type integer?
@@ -201,11 +200,11 @@ local function stop_idle_timer()
 end
 
 --- Shut the worker down (idle timeout, config change, or Vim exit). Intentional
---- stops do not count as failures and do not trigger a restart.
+--- stops do not count as failures and do not trigger a restart: clearing
+--- `state.job` here makes the stopped job's exit callback ignore it.
 function M.shutdown()
   stop_idle_timer()
   if state.job then
-    state.stopping = true
     pcall(vim.fn.jobstop, state.job)
     state.job = nil
   end
@@ -274,7 +273,6 @@ local function start()
   }
 
   state.partial, state.parts = "", {}
-  state.stopping = false
 
   -- Disable extended "thinking" for THIS worker only (never the manual lane).
   -- haiku's interleaved thinking is the dominant latency tail; turning it off
@@ -287,17 +285,25 @@ local function start()
     stdin = "pipe",
     stdout_buffered = false,
     env = worker_env,
-    on_stdout = function(_, data)
+    -- Both callbacks ignore any job that is no longer `state.job`. A restart
+    -- (e.g. on model change) stops the old job and spawns the new one
+    -- synchronously, but the old job's buffered stdout and its scheduled
+    -- on_exit arrive afterwards: fed through, its output would answer the new
+    -- worker's request, and its exit would be taken as the new worker dying
+    -- (clearing `state.job` and orphaning the live process).
+    on_stdout = function(id, data)
+      if id ~= state.job then
+        return
+      end
       feed(data or {})
     end,
     on_stderr = function() end,
-    on_exit = vim.schedule_wrap(function(_, _)
+    on_exit = vim.schedule_wrap(function(id, _)
+      if id ~= state.job then
+        return -- a superseded job, or an intentional stop (shutdown() cleared it)
+      end
       state.job = nil
       state.partial, state.parts = "", {}
-      if state.stopping then
-        state.stopping = false
-        return
-      end
       -- Unexpected death: fail pending work, count it, back off, maybe disable.
       flush_error("worker exited")
       state.failures = state.failures + 1
