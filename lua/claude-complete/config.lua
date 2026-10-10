@@ -42,8 +42,9 @@ M.defaults = {
     enabled = false, -- off by default; users opt in
     -- A cheap, fast model is strongly recommended. "haiku" is a Claude CLI
     -- alias: the CLI resolves it to its newest Haiku, so updating the CLI
-    -- (`claude update`) upgrades the lane. Pin a full id (e.g.
-    -- "claude-haiku-4-5") to freeze a version instead.
+    -- (`claude update`) upgrades the lane on the next worker start. Pin a
+    -- dated id (e.g. "claude-haiku-4-5-20251001") to freeze a version instead;
+    -- "claude-haiku-4-5" is itself an undated alias.
     model = "haiku",
     debounce_ms = 350, -- idle time before a completion is requested
     idle_shutdown_min = 10, -- stop the worker after this many idle minutes

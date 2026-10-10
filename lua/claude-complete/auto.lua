@@ -378,6 +378,7 @@ end
 -- (blink.lua reuses the same FIM context + output sanitizer). Not public API.
 M._sanitize = sanitize
 M._build_prompt = build_prompt
+M._hint_text = hint_text
 
 --- Toggle the lane, returning the new state.
 ---@return boolean enabled

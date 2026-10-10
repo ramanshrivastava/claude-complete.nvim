@@ -404,6 +404,33 @@ do
   check("init line sets resolved model", worker.status().resolved_model == "claude-haiku-5-5")
   it.reset()
   check("reset clears resolved model", worker.status().resolved_model == nil)
+
+  -- The badge prefers the resolved id, falling back to the configured name
+  -- before the first init line arrives.
+  local hint = require("claude-complete.auto")._hint_text
+  config.setup({})
+  check("badge falls back to configured model", hint() == "󰚩 haiku", hint())
+  it.state.resolved_model = "claude-haiku-5-5-20260101"
+  check("badge prefers resolved model", hint() == "󰚩 haiku-5-5", hint())
+  it.reset()
+
+  -- A real start() (not just reset()) forgets the previous process's model, so
+  -- a restart never shows a stale id. A fake CLI stands in for `claude`.
+  config.setup({ command = vim.fn.fnamemodify("tests/fake_claude.sh", ":p") })
+  worker.enable()
+  it.state.resolved_model = "stale"
+  worker.request("p", function() end)
+  local job = it.state.job
+  check("start() spawned the fake worker", job ~= nil and vim.fn.jobwait({ job }, 0)[1] == -1)
+  local resolved = worker.status().resolved_model
+  check("start() clears a stale resolved model", resolved == nil, resolved)
+  worker.shutdown()
+  if job then
+    vim.fn.jobwait({ job }, 2000) -- reap it: no fake worker outlives the test
+  end
+  vim.wait(50) -- let the scheduled on_exit run before the state is reset
+  it.reset()
+  config.setup({})
 end
 
 print(string.format("\n%d passed, %d failed", passed, failed))

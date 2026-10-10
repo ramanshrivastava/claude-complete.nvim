@@ -5,7 +5,7 @@ AI code completion for Neovim, powered by the [Claude Code](https://www.claude.c
 Two lanes, both rendered as ghost text you accept with `<Tab>`:
 
 - **Manual (`<C-g>`)** — the deep lane. Claude reads the surrounding code (imports, the cursor window, LSP diagnostics, open buffers, the project tree), explores the project with its tools when it needs to, and returns a considered multi-line completion. Best model: `sonnet`.
-- **Auto** *(opt-in)* — a fast, Cursor-style lane. As you pause typing, a lightweight persistent worker returns a short continuation from the code around your cursor. Meant as a Copilot replacement powered by your Claude subscription. Default model: the `haiku` alias, which the Claude CLI resolves to its newest Haiku — `claude update` upgrades the lane, no config change.
+- **Auto** *(opt-in)* — a fast, Cursor-style lane. As you pause typing, a lightweight persistent worker returns a short continuation from the code around your cursor. Meant as a Copilot replacement powered by your Claude subscription. Default model: the `haiku` alias, which the Claude CLI resolves to its newest Haiku — `claude update` upgrades the lane with no config change, taking effect once the worker restarts (after the default 10-minute idle shutdown, `:ClaudeCompleteAuto off` then `on`, or restarting Neovim).
 
 ![demo](assets/demo.gif)
 
@@ -114,7 +114,7 @@ It's **async** (the row pops in ~2 s after you pause, like Copilot's did) and **
   },
   auto = {                   -- the automatic, Cursor-style lane (opt-in)
     enabled = false,         -- off by default
-    model = "haiku", -- CLI alias → its newest Haiku; pin e.g. "claude-haiku-4-5" to freeze
+    model = "haiku", -- CLI alias → its newest Haiku; pin a dated id, e.g. "claude-haiku-4-5-20251001", to freeze
     debounce_ms = 350,       -- idle time before a completion is requested
     idle_shutdown_min = 10,  -- stop the worker after this many idle minutes
     max_filesize_kb = 500,   -- skip buffers larger than this
